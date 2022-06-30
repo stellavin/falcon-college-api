@@ -2,6 +2,7 @@ const config = require("../config/auth.config");
 const db = require("../models");
 const User = db.user;
 const Role = db.role;
+const Department = db.department;
 
 var jwt = require("jsonwebtoken");
 var bcrypt = require("bcryptjs");
@@ -10,7 +11,7 @@ exports.signup = (req, res) => {
   const user = new User({
     username: req.body.username,
     email: req.body.email,
-    password: bcrypt.hashSync(req.body.password, 8)
+    password: bcrypt.hashSync(req.body.password, 8),
   });
 
   user.save((err, user) => {
@@ -22,7 +23,7 @@ exports.signup = (req, res) => {
     if (req.body.roles) {
       Role.find(
         {
-          name: { $in: req.body.roles }
+          name: { $in: req.body.roles },
         },
         (err, roles) => {
           if (err) {
@@ -30,14 +31,38 @@ exports.signup = (req, res) => {
             return;
           }
 
-          user.roles = roles.map(role => role._id);
-          user.save(err => {
+          user.roles = roles.map((role) => role._id);
+          user.save((err) => {
             if (err) {
               res.status(500).send({ message: err });
               return;
             }
 
-            res.send({ message: "User was registered successfully!" });
+            if (req.body.departments) {
+              Department.find(
+                {
+                  name: { $in: req.body.departments },
+                },
+                (err, departments) => {
+                  if (err) {
+                    res.status(500).send({ message: err });
+                    return;
+                  }
+
+                  user.departments = departments.map(
+                    (department) => department._id
+                  );
+                  user.save((err) => {
+                    if (err) {
+                      res.status(500).send({ message: err });
+                      return;
+                    }
+
+                    res.send({ message: "User was registered successfully!" });
+                  });
+                }
+              );
+            }
           });
         }
       );
@@ -49,7 +74,8 @@ exports.signup = (req, res) => {
         }
 
         user.roles = [role._id];
-        user.save(err => {
+        console.log("user-----", user);
+        user.save((err) => {
           if (err) {
             res.status(500).send({ message: err });
             return;
@@ -64,9 +90,10 @@ exports.signup = (req, res) => {
 
 exports.signin = (req, res) => {
   User.findOne({
-    username: req.body.username
+    username: req.body.username,
   })
     .populate("roles", "-__v")
+    .populate("departments", "-__v")
     .exec((err, user) => {
       if (err) {
         res.status(500).send({ message: err });
@@ -85,12 +112,12 @@ exports.signin = (req, res) => {
       if (!passwordIsValid) {
         return res.status(401).send({
           accessToken: null,
-          message: "Invalid Password!"
+          message: "Invalid Password!",
         });
       }
 
       var token = jwt.sign({ id: user.id }, config.secret, {
-        expiresIn: 86400 // 24 hours
+        expiresIn: 86400, // 24 hours
       });
 
       var authorities = [];
@@ -98,12 +125,27 @@ exports.signin = (req, res) => {
       for (let i = 0; i < user.roles.length; i++) {
         authorities.push("ROLE_" + user.roles[i].name.toUpperCase());
       }
+
+      var departments = [];
+
+      for (let i = 0; i < user.departments.length; i++) {
+        departments.push(user.departments[i].name);
+      }
+      let department = 0;
+      console.log(user.departments);
+
+      if (user.departments.length > 0) {
+        department = user.departments[0]._id;
+      }
+
       res.status(200).send({
         id: user._id,
         username: user.username,
         email: user.email,
         roles: authorities,
-        accessToken: token
+        departmentid: department,
+        departments: departments,
+        accessToken: token,
       });
     });
 };
